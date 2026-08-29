@@ -10,6 +10,7 @@
 #include <net/if.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <sys/ioctl.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
@@ -23,69 +24,71 @@
 
 char* get_ip_address(void)
 {
-    int fd;
-    struct ifreq ifr;
-    int symbol=0;
+    /* FIX: this asked the kernel for the address of an interface literally
+       named "eth0", and returned "xxx.xxx.xxx.xxx" when that failed. The name
+       is not portable: recent Raspberry Pi kernels call the built-in NIC end0,
+       Ubuntu still uses eth0, and systemd elsewhere produces enp*/ens*. Home
+       Assistant OS on a Pi therefore showed no address at all.
 
-    /* FIX: this used to return a hardcoded address for the eth0 case, because
-       the HA addon runs in a bridged container where eth0 is the container's
-       own 172.x address rather than the host's -- so the real lookup showed
-       something useless. That made the source host-specific: anyone else
-       building it saw one particular machine's IP on their display.
-       See also `host_network: true` in config.yaml, which makes the lookup
-       correct inside the addon as well.
+       (Before that it returned a hardcoded string, which worked only because
+       the addon container could not have seen the host's address anyway.)
 
-       Now: set UCTRONICS_IP_ADDRESS to override, leave it unset to detect. */
+       Now every interface is enumerated and the first usable IPv4 wins:
+       skipping loopback and down interfaces, preferring wired over wireless
+       unless IPADDRESS_TYPE says otherwise. UCTRONICS_IP_ADDRESS still
+       overrides everything. */
+    static char address[INET_ADDRSTRLEN];
+    struct ifaddrs *ifaddr, *ifa;
+    int pass;
+
     const char *override = getenv("UCTRONICS_IP_ADDRESS");
     if (override && *override)
     {
       return (char *)override;
     }
 
-    if (IPADDRESS_TYPE == ETH0_ADDRESS)
+    if (getifaddrs(&ifaddr) == -1)
     {
-      fd = socket(AF_INET, SOCK_DGRAM, 0);
-      /* I want to get an IPv4 IP address */
-      ifr.ifr_addr.sa_family = AF_INET;
-      /* I want IP address attached to "eth0" */
-      strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
-      symbol=ioctl(fd, SIOCGIFADDR, &ifr);
-      close(fd);
-      if(symbol==0)
+      return "xxx.xxx.xxx.xxx";
+    }
+
+    /* Pass 0 takes the preferred family of interface, pass 1 takes anything.
+       Wireless names begin with 'w' (wlan0, wlp2s0) on every scheme in use. */
+    for (pass = 0; pass < 2; pass++)
+    {
+      for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
       {
-        return inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
-      }
-      else
-      {
-        char* buffer="xxx.xxx.xxx.xxx";
-        return buffer;
-      }
-    }
-    else if (IPADDRESS_TYPE == WLAN0_ADDRESS)
-    {
-        fd = socket(AF_INET, SOCK_DGRAM, 0);
-        /* I want to get an IPv4 IP address */
-        ifr.ifr_addr.sa_family = AF_INET;
-        /* I want IP address attached to "wlan0" */
-        strncpy(ifr.ifr_name, "wlan0", IFNAMSIZ-1);
-        symbol=ioctl(fd, SIOCGIFADDR, &ifr);
-        close(fd);
-        if(symbol==0)
+        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET)
         {
-          return inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
+          continue;
         }
-        else
+        if ((ifa->ifa_flags & IFF_LOOPBACK) || !(ifa->ifa_flags & IFF_UP))
         {
-          char* buffer="xxx.xxx.xxx.xxx";
-          return buffer;
+          continue;
         }
+        if (pass == 0)
+        {
+          int wireless = (ifa->ifa_name[0] == 'w');
+          if (IPADDRESS_TYPE == WLAN0_ADDRESS ? !wireless : wireless)
+          {
+            continue;
+          }
+        }
+
+        if (inet_ntop(AF_INET,
+                      &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
+                      address, sizeof(address)) != NULL)
+        {
+          freeifaddrs(ifaddr);
+          return address;
+        }
+      }
     }
-    else
-    {
-      char* buffer="xxx.xxx.xxx.xxx";
-      return buffer;
-    }
+
+    freeifaddrs(ifaddr);
+    return "xxx.xxx.xxx.xxx";
 }
+
 
 /*
 * get ram memory
