@@ -1,7 +1,7 @@
 name: "UCTronics Display"
 description: "UCTronics LCD Display"
-url: "https://github.com/UCTRONICS/UCTRONICS_RM0004_HA/tree/main/uc_tronics_display"
-version: "1.1.2"
+url: "https://github.com/dazayas/pi-rack-display/tree/main/uc_tronics_display"
+version: "1.2.1"
 slug: "uc_tronics_display"
 init: false
 arch:
@@ -17,3 +17,17 @@ devices:
 privileged: 
   - "SYS_ADMIN"
 hassio_api: true
+# Needed so the IP shown is the HOST's, not the container's. Without it eth0
+# inside the addon is a 172.x bridge address, which is what drove the previous
+# hardcoded-IP workaround. The addon opens no ports, so sharing the host's
+# network namespace costs nothing.
+host_network: true
+options:
+  # Empty means detect from eth0/wlan0. Set it only if detection is wrong.
+  ip_address: ""
+  # Seconds per screen, as a fixed cycle -- the sleep absorbs the draw time, so
+  # the rotation looks the same on a fast bus and a slow one.
+  dwell_seconds: 3
+schema:
+  ip_address: "str?"
+  dwell_seconds: "float(0.5,60)"

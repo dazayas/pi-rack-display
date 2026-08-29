@@ -26,6 +26,22 @@ char* get_ip_address(void)
     int fd;
     struct ifreq ifr;
     int symbol=0;
+
+    /* FIX: this used to return a hardcoded address for the eth0 case, because
+       the HA addon runs in a bridged container where eth0 is the container's
+       own 172.x address rather than the host's -- so the real lookup showed
+       something useless. That made the source host-specific: anyone else
+       building it saw one particular machine's IP on their display.
+       See also `host_network: true` in config.yaml, which makes the lookup
+       correct inside the addon as well.
+
+       Now: set UCTRONICS_IP_ADDRESS to override, leave it unset to detect. */
+    const char *override = getenv("UCTRONICS_IP_ADDRESS");
+    if (override && *override)
+    {
+      return (char *)override;
+    }
+
     if (IPADDRESS_TYPE == ETH0_ADDRESS)
     {
       fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -53,10 +69,10 @@ char* get_ip_address(void)
         /* I want IP address attached to "wlan0" */
         strncpy(ifr.ifr_name, "wlan0", IFNAMSIZ-1);
         symbol=ioctl(fd, SIOCGIFADDR, &ifr);
-        close(fd);    
+        close(fd);
         if(symbol==0)
         {
-          return inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);   
+          return inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
         }
         else
         {
@@ -73,6 +89,11 @@ char* get_ip_address(void)
 
 /*
 * get ram memory
+*
+* FIX: previously read MemFree, which excludes reclaimable page cache and so
+* makes a healthy Linux box look ~98% full. MemAvailable is the kernel's own
+* estimate of memory obtainable without swapping, which is what a "free RAM"
+* display should show. Falls back to MemFree on ancient kernels that lack it.
 */
 void get_cpu_memory(float *Totalram,float *freeram)
 {
@@ -81,6 +102,9 @@ void get_cpu_memory(float *Totalram,float *freeram)
   unsigned int value=0;
   unsigned char buffer[100]={0};
   unsigned char famer[100]={0};
+  int got_available = 0;
+  float memfree_fallback = 0.0f;
+
     if(sysinfo(&s_info)==0)            //Get memory information
     {
         FILE* fp=fopen("/proc/meminfo","r");
@@ -88,34 +112,48 @@ void get_cpu_memory(float *Totalram,float *freeram)
         {
             return ;
         }
-        while(fgets(buffer,sizeof(buffer),fp))
+        while(fgets((char *)buffer,sizeof(buffer),fp))
         {
-            if(sscanf(buffer,"%s%u",famer,&value)!=2)
+            if(sscanf((char *)buffer,"%s%u",famer,&value)!=2)
             {
             continue;
             }
-            if(strcmp(famer,"MemTotal:")==0)
+            if(strcmp((char *)famer,"MemTotal:")==0)
             {
              *Totalram=value/1000.0/1000.0;
             }
-            else if(strcmp(famer,"MemFree:")==0)
+            else if(strcmp((char *)famer,"MemAvailable:")==0)
             {
               *freeram=value/1000.0/1000.0;
+              got_available = 1;
+            }
+            else if(strcmp((char *)famer,"MemFree:")==0)
+            {
+              memfree_fallback=value/1000.0/1000.0;
             }
         }
-        fclose(fp);    
-    }   
+        fclose(fp);
+
+        if(!got_available)
+        {
+          *freeram = memfree_fallback;
+        }
+    }
 }
 
 /*
 * get sd memory
+*
+* NOTE: statfs("/") inside the add-on container reports the container's own
+* root overlay, not the host SD/SSD. Left as-is because nothing in the display
+* path appears to rely on it; if it is ever used, point it at "/data".
 */
 void get_sd_memory(uint32_t *MemSize, uint32_t *freesize)
 {
     struct statfs diskInfo;
     statfs("/",&diskInfo);
     unsigned long long blocksize = diskInfo.f_bsize;// The number of bytes per block
-    unsigned long long totalsize = blocksize*diskInfo.f_blocks;//Total number of bytes	
+    unsigned long long totalsize = blocksize*diskInfo.f_blocks;//Total number of bytes
     *MemSize=(unsigned int)(totalsize>>30);
 
 
@@ -127,24 +165,38 @@ void get_sd_memory(uint32_t *MemSize, uint32_t *freesize)
 
 /*
 * get hard disk memory
+*
+* FIX: the original shelled out to `df | grep /dev/sda`, which inside this
+* container matches FIVE bind-mounted lines all on the same device. awk then
+* printed field 2 for every line with no separator, producing a concatenated
+* number that the 10-byte buffer truncated mid-digits — hence "134% used".
+* It also called fclose() on a popen() stream, which never reaps the child,
+* leaking a zombie process on every refresh.
+*
+* statfs() answers the same question directly: no subprocess, no busybox
+* parsing differences, no zombies. "/data" is the add-on's mount of the host
+* data partition (sda8 on this machine), which is the volume worth showing.
 */
 uint8_t get_hard_disk_memory(uint16_t *diskMemSize, uint16_t *useMemSize)
 {
+  struct statfs diskInfo;
+
   *diskMemSize = 0;
-  *useMemSize = 0;
-  uint8_t diskMembuff[10] = {0};
-  uint8_t useMembuff[10] = {0};
-  FILE *fd = NULL;
-  fd=popen("df -l | grep /dev/sda | awk '{printf \"%s\", $(2)}'","r"); 
-  fgets(diskMembuff,sizeof(diskMembuff),fd);
-  fclose(fd);
+  *useMemSize  = 0;
 
-  fd=popen("df -l | grep /dev/sda | awk '{printf \"%s\", $(3)}'","r"); 
-  fgets(useMembuff,sizeof(useMembuff),fd);
-  fclose(fd);
+  if (statfs("/data", &diskInfo) != 0)
+  {
+    return 0;
+  }
 
-  *diskMemSize = atoi(diskMembuff)/1024/1024;
-  *useMemSize  = atoi(useMembuff)/1024/1024;
+  unsigned long long blocksize = diskInfo.f_bsize;
+  unsigned long long totalsize = blocksize * (unsigned long long)diskInfo.f_blocks;
+  unsigned long long freesize  = blocksize * (unsigned long long)diskInfo.f_bfree;
+
+  *diskMemSize = (uint16_t)(totalsize >> 30);                 /* GiB total */
+  *useMemSize  = (uint16_t)((totalsize - freesize) >> 30);    /* GiB used  */
+
+  return 0;
 }
 
 /*
@@ -157,32 +209,82 @@ uint8_t get_temperature(void)
     unsigned int temp;
     char buff[10] = {0};
     fd = fopen("/sys/class/thermal/thermal_zone0/temp","r");
+    if (fd == NULL)
+    {
+      return 0;
+    }
     fgets(buff,sizeof(buff),fd);
     sscanf(buff, "%d", &temp);
     fclose(fd);
-    return TEMPERATURE_TYPE == FAHRENHEIT ? temp/1000*1.8+32 : temp/1000;    
+    return TEMPERATURE_TYPE == FAHRENHEIT ? temp/1000*1.8+32 : temp/1000;
 }
 
 /*
 * Get cpu usage
+*
+* FIX: busybox top has no "%Cpu" line — it prints
+*   CPU:   2% usr   2% sys   0% nic  95% idle   0% io   0% irq   0% sirq
+* so the original `grep %Cpu` matched only its own command line in the process
+* list, and awk read the PPID column as a percentage. This finds the "idle"
+* field by name and returns 100-idle, so it survives field reordering.
+* Also uses pclose() (the original used fclose(), leaking the child).
 */
 uint8_t get_cpu_message(void)
 {
-    FILE * fp;
-    uint8_t usCpuBuff[5] = {0};
-    uint8_t syCpubuff[5] = {0};
-    int usCpu = 0;
-    int syCpu = 0;
+    /* FIX: this used to run `top -bn1 | awk '/^CPU:/...'` through popen and
+       parse an "idle" field. That is BUSYBOX top's format -- correct in the
+       Alpine addon container, and silently wrong everywhere else: procps top
+       on Debian/Ubuntu prints "%Cpu(s): ... 98.3 id," with no "idle" token, so
+       the awk matched nothing, atoi("") returned 0, and the bar sat at its
+       minimum no matter how loaded the machine was.
 
-    fp=popen("top -bn1 | grep %Cpu | awk '{printf \"%.2f\", $(2)}'","r");    //Gets the load on the CPU
-    fgets(usCpuBuff, sizeof(usCpuBuff),fp);                                    //Read the user CPU load
-    pclose(fp);    
+       /proc/stat is the source top itself reads. No fork, no shell, no output
+       format to parse -- and it removes a popen from the slowest screen, which
+       is also the only one that repaints the whole display.
 
-    fp=popen("top -bn1 | grep %Cpu | awk '{printf \"%.2f\", $(4)}'","r");    //Gets the load on the CPU
-    fgets(syCpubuff, sizeof(syCpubuff),fp);                                    //Read the system CPU load
-    pclose(fp);   
-    usCpu = atoi(usCpuBuff);
-    syCpu = atoi(syCpubuff);
-    return usCpu+syCpu;
-  
+       Deltas are kept between calls, so this reports load since the previous
+       refresh rather than since boot. The first call has no previous sample
+       and reports 0. */
+    static unsigned long long prev_total = 0, prev_idle = 0;
+
+    FILE *fp;
+    char buff[256];
+    unsigned long long user, nice, sys, idle, iowait, irq, softirq, steal;
+    unsigned long long total, idle_all, d_total, d_idle;
+
+    fp = fopen("/proc/stat", "r");
+    if (fp == NULL)
+    {
+      return 0;
+    }
+    if (fgets(buff, sizeof(buff), fp) == NULL)
+    {
+      fclose(fp);
+      return 0;
+    }
+    fclose(fp);
+
+    if (sscanf(buff, "cpu %llu %llu %llu %llu %llu %llu %llu %llu",
+               &user, &nice, &sys, &idle, &iowait, &irq, &softirq, &steal) < 4)
+    {
+      return 0;
+    }
+
+    idle_all = idle + iowait;
+    total = user + nice + sys + idle_all + irq + softirq + steal;
+
+    if (prev_total == 0 || total <= prev_total)
+    {
+      prev_total = total;
+      prev_idle = idle_all;
+      return 0;
+    }
+
+    d_total = total - prev_total;
+    d_idle  = idle_all - prev_idle;
+    prev_total = total;
+    prev_idle = idle_all;
+
+    return (uint8_t)((100ULL * (d_total - d_idle)) / d_total);
 }
+

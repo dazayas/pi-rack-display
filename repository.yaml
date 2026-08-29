@@ -1,4 +1,4 @@
 # https://developers.home-assistant.io/docs/add-ons/repository#repository-configuration
-name: Home Assistant add-on repository
-url: 'https://github.com/UCTRONICS/UCTRONICS_RM0004_HA'
-maintainer: arducam <support@arducam.com>
+name: Pi Rack Display
+url: 'https://github.com/dazayas/pi-rack-display'
+maintainer: dazayas <16315821+dazayas@users.noreply.github.com>
