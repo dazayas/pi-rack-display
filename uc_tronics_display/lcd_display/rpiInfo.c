@@ -10,7 +10,6 @@
 #include <net/if.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <ifaddrs.h>
 #include <sys/ioctl.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
@@ -24,22 +23,27 @@
 
 char* get_ip_address(void)
 {
-    /* FIX: this asked the kernel for the address of an interface literally
-       named "eth0", and returned "xxx.xxx.xxx.xxx" when that failed. The name
-       is not portable: recent Raspberry Pi kernels call the built-in NIC end0,
-       Ubuntu still uses eth0, and systemd elsewhere produces enp0s3-style names.
-       Home Assistant OS on a Pi therefore showed no address at all.
+    /* Which address is "the host's" is a routing question, so ask the routing
+       table rather than guessing from interface names.
 
-       (Before that it returned a hardcoded string, which worked only because
-       the addon container could not have seen the host's address anyway.)
+       Two earlier attempts got this wrong. The first asked for an interface
+       literally named "eth0" -- true on Ubuntu, but Raspberry Pi kernels call
+       it end0 and systemd elsewhere uses enp-style names, so Home Assistant OS
+       showed nothing. The second took the first non-loopback IPv4 from
+       getifaddrs(), which breaks the moment the host runs Docker: docker0 is a
+       perfectly good non-loopback IPv4 that is not the address anyone wants.
 
-       Now every interface is enumerated and the first usable IPv4 wins:
-       skipping loopback and down interfaces, preferring wired over wireless
-       unless IPADDRESS_TYPE says otherwise. UCTRONICS_IP_ADDRESS still
-       overrides everything. */
+       Connecting a UDP socket sends no packets. It just makes the kernel pick
+       the source address it would use to reach the internet, which is exactly
+       the definition wanted, and it is immune to interface naming, bridge
+       interfaces and VPN interfaces alike.
+
+       UCTRONICS_IP_ADDRESS still overrides, for hosts where that answer is not
+       the useful one. */
     static char address[INET_ADDRSTRLEN];
-    struct ifaddrs *ifaddr, *ifa;
-    int pass;
+    struct sockaddr_in probe, local;
+    socklen_t len = sizeof(local);
+    int fd;
 
     const char *override = getenv("UCTRONICS_IP_ADDRESS");
     if (override && *override)
@@ -47,46 +51,32 @@ char* get_ip_address(void)
       return (char *)override;
     }
 
-    if (getifaddrs(&ifaddr) == -1)
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0)
     {
       return "xxx.xxx.xxx.xxx";
     }
 
-    /* Pass 0 takes the preferred family of interface, pass 1 takes anything.
-       Wireless names begin with 'w' (wlan0, wlp2s0) on every scheme in use. */
-    for (pass = 0; pass < 2; pass++)
+    memset(&probe, 0, sizeof(probe));
+    probe.sin_family = AF_INET;
+    probe.sin_port = htons(53);
+    /* Never contacted -- a UDP connect() only sets the socket's peer and lets
+       the kernel resolve a route. Any routable address works. */
+    probe.sin_addr.s_addr = inet_addr("1.1.1.1");
+
+    if (connect(fd, (struct sockaddr *)&probe, sizeof(probe)) < 0 ||
+        getsockname(fd, (struct sockaddr *)&local, &len) < 0)
     {
-      for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
-      {
-        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET)
-        {
-          continue;
-        }
-        if ((ifa->ifa_flags & IFF_LOOPBACK) || !(ifa->ifa_flags & IFF_UP))
-        {
-          continue;
-        }
-        if (pass == 0)
-        {
-          int wireless = (ifa->ifa_name[0] == 'w');
-          if (IPADDRESS_TYPE == WLAN0_ADDRESS ? !wireless : wireless)
-          {
-            continue;
-          }
-        }
-
-        if (inet_ntop(AF_INET,
-                      &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
-                      address, sizeof(address)) != NULL)
-        {
-          freeifaddrs(ifaddr);
-          return address;
-        }
-      }
+      close(fd);
+      return "xxx.xxx.xxx.xxx";
     }
+    close(fd);
 
-    freeifaddrs(ifaddr);
-    return "xxx.xxx.xxx.xxx";
+    if (inet_ntop(AF_INET, &local.sin_addr, address, sizeof(address)) == NULL)
+    {
+      return "xxx.xxx.xxx.xxx";
+    }
+    return address;
 }
 
 
