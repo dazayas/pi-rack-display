@@ -1,7 +1,7 @@
 name: "UCTronics Display"
 description: "UCTronics LCD Display"
 url: "https://github.com/dazayas/pi-rack-display/tree/main/uc_tronics_display"
-version: "1.2.2"
+version: "1.2.3"
 slug: "uc_tronics_display"
 init: false
 arch:

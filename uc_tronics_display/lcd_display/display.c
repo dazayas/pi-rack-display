@@ -26,6 +26,21 @@ Demo for ssd1306 i2c driver for  Raspberry Pi
    still varies a little between machines, by the sum of their draw times --
    that is the transition, and it is the part the eye does not measure. */
 
+/* Screen dwell, from the environment so it can be changed without rebuilding:
+   UCTRONICS_DWELL_SECONDS, or the addon's dwell_seconds option. Clamped rather
+   than trusted -- a value of 0 would repaint the display continuously, with
+   nothing on screen to say why. */
+static long dwell_nsec(void)
+{
+	const char *s = getenv("UCTRONICS_DWELL_SECONDS");
+	double v = (s && *s) ? atof(s) : 3.0;
+
+	if (v < 0.5)  v = 0.5;
+	if (v > 60.0) v = 60.0;
+
+	return (long)(v * 1000000000.0);
+}
+
 int main(void) 
 {
 	uint8_t symbol = 0;
