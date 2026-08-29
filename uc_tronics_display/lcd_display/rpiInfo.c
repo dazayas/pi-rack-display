@@ -27,8 +27,8 @@ char* get_ip_address(void)
     /* FIX: this asked the kernel for the address of an interface literally
        named "eth0", and returned "xxx.xxx.xxx.xxx" when that failed. The name
        is not portable: recent Raspberry Pi kernels call the built-in NIC end0,
-       Ubuntu still uses eth0, and systemd elsewhere produces enp*/ens*. Home
-       Assistant OS on a Pi therefore showed no address at all.
+       Ubuntu still uses eth0, and systemd elsewhere produces enp0s3-style names.
+       Home Assistant OS on a Pi therefore showed no address at all.
 
        (Before that it returned a hardcoded string, which worked only because
        the addon container could not have seen the host's address anyway.)
