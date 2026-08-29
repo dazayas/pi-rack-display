@@ -30,13 +30,19 @@ char* get_ip_address(void)
        literally named "eth0" -- true on Ubuntu, but Raspberry Pi kernels call
        it end0 and systemd elsewhere uses enp-style names, so Home Assistant OS
        showed nothing. The second took the first non-loopback IPv4 from
-       getifaddrs(), which breaks the moment the host runs Docker: docker0 is a
-       perfectly good non-loopback IPv4 that is not the address anyone wants.
+       getifaddrs(), which fails two ways: docker0 is a perfectly good
+       non-loopback IPv4 that is nobody's idea of the host's address, and
+       getifaddrs() itself needs an AF_NETLINK socket -- so under a systemd
+       unit with RestrictAddressFamilies it returns -1 and reports nothing at
+       all. That is what happened outside the addon container, where no such
+       sandbox applies.
 
        Connecting a UDP socket sends no packets. It just makes the kernel pick
        the source address it would use to reach the internet, which is exactly
        the definition wanted, and it is immune to interface naming, bridge
-       interfaces and VPN interfaces alike.
+       interfaces and VPN interfaces alike. It also needs only AF_INET, which
+       a hardened unit is likely to permit already since the display is on an
+       IP network by definition.
 
        UCTRONICS_IP_ADDRESS still overrides, for hosts where that answer is not
        the useful one. */
