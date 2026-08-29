@@ -25,6 +25,7 @@ https://github.com/dazayas/pi-rack-display
 | **IP address is detected, not hardcoded** | `get_ip_address()` returned a literal address with the real lookup commented out beside it — a workaround for the container, where `eth0` is a 172.x bridge address rather than the host's. `host_network: true` makes detection correct in the addon too, and `UCTRONICS_IP_ADDRESS` overrides it if needed. |
 | **Fixed screen dwell** | The loop slept a flat 2s *after* drawing, so the rotation sped up whenever drawing did — raising the I2C bus to 400 kHz made identical trays cycle at visibly different rates. The dwell is now timed from the end of the draw, so every screen is readable for the same duration. Configurable via `dwell_seconds`. |
 | **Non-zero exit on init failure** | `lcd_begin()` failure returned 0, so failing to open the I2C bus exited *successfully*. Under systemd the journal reads "Deactivated successfully" while the unit restarts forever. |
+| **`build.yaml` added** | Supervisor supplies `BUILD_FROM` from this file. Without it the build fails at `FROM $BUILD_FROM` with *base name should not be blank*. Older Supervisor releases had implicit defaults, so the addon built once and then stopped without anything about it changing. |
 | **No more log spam** | The loop printed `lcd display` with no newline on every iteration, producing one ever-growing line in the addon log. |
 
 Two of these are only visible outside the addon container, which is why they survived

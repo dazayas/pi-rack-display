@@ -1,0 +1,17 @@
+# Base image per architecture. Supervisor passes this to the Dockerfile as the
+# BUILD_FROM arg; without this file the arg is empty and the build fails at
+# `FROM $BUILD_FROM` with "base name should not be blank".
+#
+# Older Supervisor releases supplied implicit defaults, so an addon could build
+# without this and many still lack one. Current releases do not, which is why
+# this repo built once and then stopped -- nothing about the addon changed.
+#
+# The Home Assistant base images are Alpine, which is what the Dockerfile's
+# `apk add` expects. The architectures here must match the `arch:` list in
+# config.yaml.
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base:latest
+  amd64: ghcr.io/home-assistant/amd64-base:latest
+  armhf: ghcr.io/home-assistant/armhf-base:latest
+  armv7: ghcr.io/home-assistant/armv7-base:latest
+  i386: ghcr.io/home-assistant/i386-base:latest
