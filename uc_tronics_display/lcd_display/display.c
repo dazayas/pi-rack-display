@@ -31,7 +31,7 @@ Demo for ssd1306 i2c driver for  Raspberry Pi
    The fix is not to synchronise the hosts WITH each other (no leader, no
    broker, no shared state) but to align each one independently against a
    reference they already share: the wall clock. Each waits for the next
-   quarter-minute boundary, then runs a cycle of exactly UCTRONICS_CYCLE_SECONDS
+   UCTRONICS_ALIGN_SECONDS boundary, then runs a cycle of exactly UCTRONICS_CYCLE_SECONDS
    with each page drawn at an absolute instant computed from the clock. Every
    host lands on the same boundaries forever after with no communication at
    all, and one that reboots rejoins within a cycle.
@@ -87,16 +87,18 @@ static long long dwell_nsec(void)
 }
 
 /* One full rotation of all four screens, divided evenly between them: the
-   default 15 s gives each screen 3.75 s. */
+   default 12 s gives each screen a round 3 s -- matching the unaligned dwell,
+   so losing alignment changes the pace not at all. */
 static long long cycle_nsec(void)
 {
-	return nsec_of(env_seconds("UCTRONICS_CYCLE_SECONDS", 15.0, 2.0, 3600.0));
+	return nsec_of(env_seconds("UCTRONICS_CYCLE_SECONDS", 12.0, 2.0, 3600.0));
 }
 
-/* The wall-clock grid a cycle starts on. 15 s means :00, :15, :30 and :45 of
-   every minute -- epoch second zero was itself a minute boundary, so "epoch
-   seconds divisible by 15" and "quarter-minute on the wall clock" name the
-   same instants, for any interval that divides 60.
+/* The wall-clock grid a cycle starts on. 12 s means :00, :12, :24, :36 and
+   :48 of every minute -- epoch second zero was itself a minute boundary, so
+   "epoch seconds divisible by 12" and "every 12s on the wall clock" name the
+   same instants. This holds for any interval that divides 60, which is the
+   only real constraint on the value.
 
    Normally equal to the cycle: one cycle per boundary. Making it a separate
    value costs nothing and answers the case where a longer rotation should
@@ -104,7 +106,7 @@ static long long cycle_nsec(void)
    free-runs on the dwell. */
 static long long align_nsec(void)
 {
-	return nsec_of(env_seconds("UCTRONICS_ALIGN_SECONDS", 15.0, 0.0, 3600.0));
+	return nsec_of(env_seconds("UCTRONICS_ALIGN_SECONDS", 12.0, 0.0, 3600.0));
 }
 
 /* How far this host sits off the boundary. 0 -- all four transitioning
