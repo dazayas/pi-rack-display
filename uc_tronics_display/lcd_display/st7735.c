@@ -222,6 +222,40 @@ void lcd_display(uint8_t symbol)
 
 }
 
+/*
+* Horizontal start position that centres a string of the given length. The
+* stat screens hardcode their offsets because their text is a known width;
+* a hostname is not.
+*/
+static uint16_t lcd_centred_x(size_t chars, uint8_t charWidth)
+{
+  uint16_t used = (uint16_t)(chars * charWidth);
+
+  return used >= ST7735_WIDTH ? 0 : (uint16_t)((ST7735_WIDTH - used) / 2);
+}
+
+/*
+* The screen shown while the display is waiting to join the aligned rotation --
+* see the alignment comments in display.c.
+*
+* The wait is up to one boundary interval, and something has to be on screen
+* for it. A blank panel reads as a dead display, and starting a real cycle that
+* the first boundary is about to interrupt would visibly stutter, which is the
+* exact appearance the alignment exists to remove. So the wait gets a screen of
+* its own: the host's name, which is the one thing a rack of four identical
+* displays can never show too often, over the same blue rule and layout the
+* stat screens use, so the transition into the rotation is not a jolt.
+*/
+void lcd_display_placeholder(char *status)
+{
+  char *name = get_host_name();
+
+  lcd_fill_screen(ST7735_BLACK);
+  lcd_write_string(lcd_centred_x(strlen(name),Font_8x16.width),0,name,Font_8x16,ST7735_WHITE,ST7735_BLACK);
+  lcd_fill_rectangle(0,20,ST7735_WIDTH,5,ST7735_BLUE);
+  lcd_write_string(lcd_centred_x(strlen(status),Font_11x18.width),35,status,Font_11x18,ST7735_GRAY,ST7735_BLACK);
+}
+
 void lcd_display_percentage(uint8_t val, uint16_t color)
 {
   uint8_t count = 0;

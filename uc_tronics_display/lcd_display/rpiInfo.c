@@ -87,6 +87,77 @@ char* get_ip_address(void)
 
 
 /*
+* Get this host's name, for the placeholder shown while the display waits to
+* join the aligned rotation.
+*
+* UCTRONICS_HOSTNAME overrides, and inside the addon it has to: host_network
+* shares the host's NETWORK namespace but not its UTS namespace, so
+* gethostname() there still answers with the container's generated name rather
+* than the machine's. Same shape as the IP override above, and for the same
+* reason -- the container cannot always see what the display is meant to show.
+*/
+char* get_host_name(void)
+{
+    static char name[64];
+
+    const char *override = getenv("UCTRONICS_HOSTNAME");
+    if (override && *override)
+    {
+      return (char *)override;
+    }
+
+    if (gethostname(name, sizeof(name)) != 0)
+    {
+      return "unknown";
+    }
+    /* POSIX does not promise a terminator when the name is truncated. */
+    name[sizeof(name) - 1] = '\0';
+    return name;
+}
+
+
+/*
+* Is the system clock synchronised to a time source?
+*
+* Returns 1 for yes, 0 for no, and -1 for "cannot tell".
+*
+* The rack Pis have no RTC: at boot the clock reads roughly whenever the
+* filesystem was last written, and systemd-timesyncd corrects it seconds
+* later. Anything that pins itself to the wall clock -- which is exactly what
+* the aligned display loop does -- has to wait for that, or it pins itself to a
+* fiction and jumps when the correction lands.
+*
+* timedatectl is what a human would run and what systemd considers the answer.
+* popen() is acceptable here where it is not in a render path: this runs once
+* at startup, then at most twice a minute while the clock is still wrong, never
+* per refresh. Where there is no systemd at all -- the addon container -- the
+* command is simply missing, the shell exits 127, and the caller is told
+* "cannot tell" rather than made to wait for an answer that is never coming.
+*/
+int get_ntp_synchronised(void)
+{
+    FILE *fp;
+    char buff[32] = {0};
+    int got;
+
+    fp = popen("timedatectl show -p NTPSynchronized --value 2>/dev/null", "r");
+    if (fp == NULL)
+    {
+      return -1;
+    }
+    got = (fgets(buff, sizeof(buff), fp) != NULL);
+    /* pclose(), not fclose() -- fclose() on a popen() stream never reaps the
+       child, which is the zombie leak fixed elsewhere in this file. */
+    if (pclose(fp) != 0 || !got)
+    {
+      return -1;
+    }
+
+    return strncmp(buff, "yes", 3) == 0;
+}
+
+
+/*
 * get ram memory
 *
 * FIX: previously read MemFree, which excludes reclaimable page cache and so
