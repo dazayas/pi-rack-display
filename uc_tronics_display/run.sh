@@ -13,7 +13,18 @@ if ls /dev/i2c-1; then
         echo "Using configured IP: ${UCTRONICS_IP_ADDRESS}"
     fi
     export UCTRONICS_DWELL_SECONDS="$(bashio::config 'dwell_seconds')"
-    echo "Screen dwell: ${UCTRONICS_DWELL_SECONDS}s"
+    export UCTRONICS_CYCLE_SECONDS="$(bashio::config 'cycle_seconds')"
+    export UCTRONICS_ALIGN_SECONDS="$(bashio::config 'align_seconds')"
+    export UCTRONICS_ALIGN_OFFSET_SECONDS="$(bashio::config 'align_offset_seconds')"
+
+    # The container has no systemd, so the display cannot ask timedatectl
+    # whether the clock is synchronised; it says so once and aligns anyway.
+    # Home Assistant OS keeps the host's clock itself.
+    if [ "${UCTRONICS_ALIGN_SECONDS}" = "0" ]; then
+        echo "Free-running, screen dwell: ${UCTRONICS_DWELL_SECONDS}s"
+    else
+        echo "Cycle: ${UCTRONICS_CYCLE_SECONDS}s, aligned to every ${UCTRONICS_ALIGN_SECONDS}s of the wall clock, offset ${UCTRONICS_ALIGN_OFFSET_SECONDS}s"
+    fi
 
     cd /lcd_display/
     # make clean

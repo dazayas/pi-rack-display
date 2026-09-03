@@ -1,7 +1,7 @@
 name: "UCTronics Display"
 description: "UCTronics LCD Display"
 url: "https://github.com/dazayas/pi-rack-display/tree/main/uc_tronics_display"
-version: "1.2.7"
+version: "1.3.0"
 slug: "uc_tronics_display"
 init: false
 arch:
@@ -25,9 +25,27 @@ host_network: true
 options:
   # Empty means detect from eth0/wlan0. Set it only if detection is wrong.
   ip_address: ""
-  # Seconds per screen, as a fixed cycle -- the sleep absorbs the draw time, so
-  # the rotation looks the same on a fast bus and a slow one.
+  # One full rotation of all four screens, divided evenly between them: 12s
+  # gives each screen a round 3s. Only meaningful together with align_seconds.
+  cycle_seconds: 12
+  # The wall-clock grid a cycle starts on. 12 means :00, :12, :24, :36 and :48
+  # of every minute, so every display in the rack transitions at the same
+  # instant without any of them talking to each other. Any interval dividing 60
+  # works; 12 does. 0 disables alignment and falls back to dwell_seconds, which
+  # is the old free-running behaviour.
+  align_seconds: 12
+  # How far this host sits off that grid. 0 is all displays together; set it to
+  # a fraction of the cycle per rack position for a deliberate wave down the
+  # rack instead.
+  align_offset_seconds: 0
+  # Seconds per screen when NOT aligned -- align_seconds: 0, or a clock that
+  # never synchronised. The sleep absorbs the draw time, so the rotation looks
+  # the same on a fast bus and a slow one. At the default 12s cycle this equals
+  # the aligned pace exactly, so losing alignment changes nothing visible.
   dwell_seconds: 3
 schema:
   ip_address: "str?"
+  cycle_seconds: "float(2,3600)"
+  align_seconds: "float(0,3600)"
+  align_offset_seconds: "float(0,3600)"
   dwell_seconds: "float(0.5,60)"

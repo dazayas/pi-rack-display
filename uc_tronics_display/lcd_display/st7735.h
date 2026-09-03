@@ -144,6 +144,7 @@ void lcd_display_ram(void);
 void lcd_display_temp(void);
 void lcd_display_disk(void);
 void lcd_display_percentage(uint8_t val, uint16_t color);
+void lcd_display_placeholder(char *status);
 #ifdef __cplusplus
 }
 #endif
