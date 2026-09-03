@@ -1,0 +1,15 @@
+# LF in the repository, always.
+#
+# This source is VENDORED into homelab-ansible's uctronics_display role, which
+# enforces `* text=auto eol=lf` repo-wide. Without this file a Windows checkout
+# here is CRLF, and a straight copy imports CRLF into a repo that forbids it --
+# turning a five-file change into a seven-file diff where two are pure
+# line-ending churn. Caught by hand on the 2026-09-02 re-vendor; this makes it
+# not depend on catching it.
+#
+# It also matters on its own account: these files are compiled on a Pi and the
+# addon's shell scripts run in Alpine, where a CR at end of line is part of the
+# argument.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
